@@ -67,6 +67,10 @@ where
         *term = t;
     }
 
+    fn discard_leader(&self) {
+        self.leader.write().unwrap().clear();
+    }
+
     fn become_leader(&self) {
         self.set_leader(&self.config.self_id, self.get_term() + 1);
     }
@@ -153,6 +157,7 @@ where
     fn run_follower(&self) -> Result<()> {
         info!("run follower");
         while !self.get_shutdown() {
+            self.discard_leader();
             break;
         }
         Ok(())
