@@ -1,8 +1,10 @@
 use crate::config::Config;
 use crate::error::Result;
-use crate::rpc::{HeartbeatRequest, HeartbeatResponse, RPCError, RPCResult, VoteRequest, RPC};
+use crate::rpc::{
+    HeartbeatRequest, HeartbeatResponse, RPCError, RPCResult, VoteRequest, VoteResponse, RPC,
+};
 use crossbeam::sync::WaitGroup;
-use crossbeam::Receiver;
+use crossbeam::{Receiver, Sender};
 use rand::Rng;
 use std::sync::{Arc, RwLock};
 use std::thread::{sleep, Builder};
@@ -17,13 +19,25 @@ struct Inner<R> {
     shutdown: RwLock<bool>,
     term: RwLock<usize>,
     leader: RwLock<String>,
-    heartbeat_last_time: RwLock<Instant>,
+    heartbeat_sender: Sender<()>,
+    heartbeat_receiver: Receiver<()>,
+    vote_for_id: RwLock<String>,
+    vote_for_term: RwLock<usize>,
+    vote_for_random: RwLock<u64>,
 }
 
 impl<R> Inner<R>
 where
     R: RPC + Sync + Send + 'static,
 {
+    fn get_vote_for_random(&self) -> u64 {
+        *self.vote_for_random.read().unwrap()
+    }
+
+    fn get_vote_for_term(&self) -> usize {
+        *self.vote_for_term.read().unwrap()
+    }
+
     fn get_quorum(&self) -> usize {
         (self.peers.read().unwrap().len() / 2) + 1
     }
@@ -53,7 +67,6 @@ where
         F: Fn(&String),
     {
         let peers = self.peers.read().unwrap();
-
         for peer in peers.iter() {
             f(&peer)
         }
@@ -75,6 +88,20 @@ where
         self.set_leader(&self.config.self_id, self.get_term() + 1);
     }
 
+    fn election_self(&self, random: u64) {
+        self.vote_for(&self.config.self_id, self.get_term() + 1, random);
+    }
+
+    fn vote_for(&self, id: &String, term: usize, random: u64) {
+        let mut vote_for_id = self.vote_for_id.write().unwrap();
+        let mut vote_for_term = self.vote_for_term.write().unwrap();
+        let mut vote_for_random = self.vote_for_random.write().unwrap();
+
+        *vote_for_id = id.clone();
+        *vote_for_term = term;
+        *vote_for_random = random;
+    }
+
     fn run_election(&self) -> Result<()> {
         info!("run election");
         let term = self.get_term();
@@ -87,6 +114,8 @@ where
                 self.config.election_random_val_range.0,
                 self.config.election_random_val_range.1,
             );
+
+            self.election_self(random);
 
             let (s, r) = crossbeam::unbounded();
 
@@ -156,15 +185,20 @@ where
 
     fn run_follower(&self) -> Result<()> {
         info!("run follower");
+
         while !self.get_shutdown() {
-            self.discard_leader();
-            break;
+            select! {
+                recv(self.heartbeat_receiver) -> _ => {
+                    info!("received a heartbeat {:?}", Instant::now());
+                },
+                default(self.config.heartbeat_timeout) => {
+                    info!("heartbeat timeout");
+                    self.discard_leader();
+                    break;
+                }
+            }
         }
         Ok(())
-    }
-
-    fn update_heartbeat_last_time(&self) {
-        *self.heartbeat_last_time.write().unwrap() = Instant::now();
     }
 }
 
@@ -179,6 +213,7 @@ where
     R: RPC + Sync + Send + 'static,
 {
     pub fn new(config: Config, peers: Vec<String>, rpc: R) -> Self {
+        let (heartbeat_sender, heartbeat_receiver) = crossbeam::unbounded();
         Supervisor {
             inner: Arc::new(Inner {
                 config,
@@ -187,7 +222,11 @@ where
                 shutdown: Default::default(),
                 term: Default::default(),
                 leader: Default::default(),
-                heartbeat_last_time: RwLock::new(Instant::now()),
+                heartbeat_sender,
+                heartbeat_receiver,
+                vote_for_id: Default::default(),
+                vote_for_term: Default::default(),
+                vote_for_random: Default::default(),
             }),
             wg: WaitGroup::new(),
         }
@@ -198,7 +237,7 @@ where
     }
 
     pub fn heartbeat(&self, req: &HeartbeatRequest) -> RPCResult<HeartbeatResponse> {
-        info!("heartbeat");
+        info!("heartbeat {:?}", req);
         if req.from_id == self.inner.config.self_id {
             return Err(RPCError::InvalidOperation);
         }
@@ -213,7 +252,7 @@ where
             }
         }
 
-        self.inner.update_heartbeat_last_time();
+        self.inner.heartbeat_sender.send(());
 
         Ok(HeartbeatResponse {
             from_id: self.inner.config.self_id.clone(),
@@ -222,10 +261,34 @@ where
         })
     }
 
-    pub fn vote(&self, req: &HeartbeatRequest) -> RPCResult<HeartbeatResponse> {
-        info!("vote");
+    pub fn vote(&self, req: &VoteRequest) -> RPCResult<VoteResponse> {
+        info!("vote {:?}", req);
+        let term = self.inner.get_term();
 
-        unimplemented!()
+        let mut resp = VoteResponse {
+            from_id: self.inner.config.self_id.clone(),
+            to_id: req.from_id.clone(),
+            is_approved: false,
+        };
+
+        if req.term < term {
+            return Ok(resp);
+        }
+
+        let vote_for_term = self.inner.get_vote_for_term();
+        let vote_for_random = self.inner.get_vote_for_random();
+
+        if req.term < vote_for_term {
+            return Ok(resp);
+        } else if req.term == vote_for_term && req.random <= vote_for_random {
+            return Ok(resp);
+        }
+
+        resp.is_approved = true;
+
+        self.inner.vote_for(&req.from_id, req.term, req.random);
+
+        Ok(resp)
     }
 
     pub fn shutdown(&mut self) -> Result<()> {

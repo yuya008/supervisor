@@ -31,8 +31,6 @@ pub struct VoteRequest {
 pub struct VoteResponse {
     pub from_id: String,
     pub to_id: String,
-    pub term: usize,
-    pub random: usize,
     pub is_approved: bool,
 }
 
