@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 pub trait RPC {
-    fn heartbeat(&self, req: &HeartbeatRequest, timeout: Duration) -> RPCResult<HeartbeatResponse>;
-    fn vote(&self, req: &VoteRequest, timeout: Duration) -> RPCResult<VoteResponse>;
+    fn heartbeat(&self, req: &HeartbeatRequest) -> RPCResult<HeartbeatResponse>;
+    fn vote(&self, req: &VoteRequest) -> RPCResult<VoteResponse>;
 }
 
 #[derive(Debug)]

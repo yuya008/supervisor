@@ -1,7 +1,7 @@
-mod config;
-mod error;
-mod rpc;
-mod supervisor;
+pub mod config;
+pub mod error;
+pub mod rpc;
+pub mod supervisor;
 
 #[macro_use]
 extern crate log;
