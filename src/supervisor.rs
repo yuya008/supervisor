@@ -3,12 +3,8 @@ use crate::error::Result;
 use crate::rpc::{
     HeartbeatRequest, HeartbeatResponse, RPCError, RPCResult, VoteRequest, VoteResponse, RPC,
 };
-use crossbeam::sync::WaitGroup;
-use crossbeam::{Receiver, Sender};
 use rand::Rng;
-use std::ops::Sub;
-use std::sync::{Arc, RwLock};
-use std::thread::{sleep, Builder};
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -32,24 +28,8 @@ impl<R> Supervisor<R>
 where
     R: RPC + Sync + Send + 'static,
 {
-    fn get_vote_for_random(&self) -> u64 {
-        self.vote_for_random
-    }
-
-    fn get_vote_for_term(&self) -> usize {
-        self.vote_for_term
-    }
-
     fn get_quorum(&self) -> usize {
         (self.peers.len() / 2) + 1
-    }
-
-    fn set_term(&mut self, term: usize) {
-        self.term = term;
-    }
-
-    fn get_term(&self) -> usize {
-        self.term
     }
 
     fn peers_for_each<F>(&self, f: F)
@@ -67,11 +47,11 @@ where
     }
 
     fn become_leader(&mut self) {
-        self.set_leader(self.config.self_id.clone(), self.get_term() + 1);
+        self.set_leader(self.config.self_id.clone(), self.term + 1);
     }
 
     fn election_self(&mut self, random: u64) {
-        self.vote_for(self.config.self_id.clone(), self.get_term() + 1, random);
+        self.vote_for(self.config.self_id.clone(), self.term + 1, random);
     }
 
     fn vote_for(&mut self, id: String, term: usize, random: u64) {
@@ -98,9 +78,7 @@ where
         self.election_last_time = now;
         self.update_election_random_sleep_time();
 
-        info!("run election");
-
-        let term = self.get_term();
+        info!("{}: run election", &self.config.self_id);
 
         let random = rand::thread_rng().gen_range(
             self.config.election_random_val_range.0,
@@ -112,27 +90,33 @@ where
 
         self.peers_for_each(|id| {
             let rpc = self.rpc.clone();
-            let rpc_timeout = self.config.election_vote_rpc_timeout;
             let s = s.clone();
 
             let req = VoteRequest {
                 from_id: self.config.self_id.clone(),
                 to_id: id.clone(),
-                term: term + 1,
+                term: self.term + 1,
                 random,
             };
+
+            let self_id = self.config.self_id.clone();
 
             rayon::spawn(move || match rpc.vote(&req) {
                 Ok(resp) => {
                     if resp.is_approved {
-                        info!("{:?} approved of my proposal", &resp.from_id);
-                        s.send(resp);
+                        info!("{}: {:?} approved of my proposal", &self_id, &resp.from_id);
+                        s.send(resp).unwrap_or_else(|err| {
+                            warn!("{} {:?}", &self_id, err);
+                        });
                     } else {
-                        info!("{:?} proposal was not approved", &resp.from_id);
+                        info!(
+                            "{}: {:?} proposal was not approved",
+                            &self_id, &resp.from_id
+                        );
                     }
                 }
                 Err(err) => {
-                    warn!("rpc vote error: {:?}", err);
+                    warn!("{}: rpc vote error: {:?}", &self_id, err);
                 }
             });
         });
@@ -150,12 +134,11 @@ where
                     }
                 },
                 default(self.config.election_timeout) => {
-                    warn!("election timeout");
+                    warn!("{}: election timeout", &self.config.self_id);
                     return Ok(());
                 },
             }
         }
-        Ok(())
     }
 
     fn run_leader(&mut self) -> Result<()> {
@@ -167,10 +150,9 @@ where
 
         self.leader_heartbeat_last_time = now;
 
-        info!("run leader");
+        info!("{}: run leader", &self.config.self_id);
 
-        let term = self.get_term();
-        let quorum = self.get_quorum();
+        let term = self.term;
 
         self.peers_for_each(|id| {
             let rpc = self.rpc.clone();
@@ -179,13 +161,14 @@ where
                 to_id: id.clone(),
                 term,
             };
+            let self_id = self.config.self_id.clone();
 
             rayon::spawn(move || match rpc.heartbeat(&req) {
                 Ok(resp) => {
-                    info!("leader heartbeat response {:?}", &resp);
+                    info!("{}: leader heartbeat response {:?}", &self_id, &resp);
                 }
                 Err(err) => {
-                    info!("leader heartbeat error: {:?}", err);
+                    info!("{}: leader heartbeat error: {:?}", &self_id, err);
                 }
             });
         });
@@ -194,7 +177,7 @@ where
     }
 
     fn run_follower(&mut self) -> Result<()> {
-        info!("run follower");
+        info!("{}: run follower", &self.config.self_id);
         let now = Instant::now();
         if now - self.follower_heartbeat_last_time < self.config.heartbeat_timeout {
             self.follower_heartbeat_last_time = now;
@@ -209,14 +192,11 @@ impl<R> Supervisor<R>
 where
     R: RPC + Sync + Send + 'static,
 {
-    pub fn new(config: Config, peers: Vec<String>, rpc: R) -> Self {
-        let r = rand::thread_rng().gen_range(
-            config.election_random_sleep_time_range.0,
-            config.election_random_sleep_time_range.1,
-        );
-        Supervisor {
+    pub fn new(config: Config, peers: Vec<String>, rpc: Arc<R>) -> Result<Self> {
+        config.check()?;
+        Ok(Supervisor {
             config,
-            rpc: Arc::new(rpc),
+            rpc,
             peers,
             term: Default::default(),
             leader: Default::default(),
@@ -227,7 +207,7 @@ where
             election_random_sleep_time: Default::default(),
             leader_heartbeat_last_time: Instant::now(),
             follower_heartbeat_last_time: Instant::now(),
-        }
+        })
     }
 
     pub fn get_leader(&self) -> String {
@@ -235,15 +215,18 @@ where
     }
 
     pub fn heartbeat(&mut self, req: &HeartbeatRequest) -> RPCResult<HeartbeatResponse> {
-        info!("heartbeat {:?}", req);
+        info!("{}: heartbeat {:?}", &self.config.self_id, req);
 
         if req.from_id == self.config.self_id {
             return Err(RPCError::InvalidOperation);
         }
 
         if req.from_id != self.leader {
-            if req.term > self.term {
-                info!("heartbeat got new leader {:?} {:?}", &req.from_id, req.term);
+            if req.term >= self.term {
+                info!(
+                    "{}: heartbeat got new leader {:?} {:?}",
+                    &self.config.self_id, &req.from_id, req.term
+                );
                 // new leader
                 self.leader = req.from_id.clone();
                 self.term = req.term;
@@ -262,8 +245,7 @@ where
     }
 
     pub fn vote(&mut self, req: &VoteRequest) -> RPCResult<VoteResponse> {
-        info!("vote {:?}", req);
-        let term = self.get_term();
+        info!("{}: vote {:?}", &self.config.self_id, req);
 
         let mut resp = VoteResponse {
             from_id: self.config.self_id.clone(),
@@ -271,12 +253,12 @@ where
             is_approved: false,
         };
 
-        if req.term <= term {
+        if req.term <= self.term {
             return Ok(resp);
         }
 
-        let vote_for_term = self.get_vote_for_term();
-        let vote_for_random = self.get_vote_for_random();
+        let vote_for_term = self.vote_for_term;
+        let vote_for_random = self.vote_for_random;
 
         if req.term < vote_for_term {
             return Ok(resp);

@@ -1,15 +1,16 @@
 use crate::config::ConfigError;
+use crate::rpc::RPCError;
 
 quick_error! {
     #[derive(Debug)]
-    pub enum Error {
+    pub enum SupervisorError {
         ConfigError {
-            from()
+            from(ConfigError)
         }
         RPCError {
-            from()
+            from(RPCError)
         }
     }
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, SupervisorError>;

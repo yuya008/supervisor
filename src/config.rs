@@ -24,12 +24,16 @@ impl Default for Config {
             election_random_sleep_time_range: (10, 501),
             election_random_val_range: (std::u64::MIN, std::u64::MAX),
             election_vote_rpc_timeout: Duration::from_millis(200),
-            election_timeout: Duration::from_millis(100),
+            election_timeout: Duration::from_millis(2000),
         }
     }
 }
 
-impl Config {}
+impl Config {
+    pub fn check(&self) -> ConfigResult<()> {
+        Ok(())
+    }
+}
 
 quick_error! {
     #[derive(Debug)]
@@ -40,3 +44,5 @@ quick_error! {
         }
     }
 }
+
+pub type ConfigResult<T> = std::result::Result<T, ConfigError>;
