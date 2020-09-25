@@ -7,22 +7,20 @@ pub trait RPC {
 pub struct HeartbeatRequest {
     pub from_id: String,
     pub to_id: String,
-    pub term: usize,
+    pub round: u64,
 }
 
 #[derive(Debug, Clone)]
 pub struct HeartbeatResponse {
     pub from_id: String,
     pub to_id: String,
-    pub term: usize,
 }
 
 #[derive(Debug, Clone)]
 pub struct VoteRequest {
     pub from_id: String,
     pub to_id: String,
-    pub term: usize,
-    pub random: u64,
+    pub round: u64,
 }
 
 #[derive(Debug, Clone)]
