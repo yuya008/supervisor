@@ -37,6 +37,7 @@ quick_error! {
     pub enum RPCError {
         InvalidOperation {}
         Timeout {}
+        Inaccessible {}
     }
 }
 
