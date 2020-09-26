@@ -5,7 +5,6 @@ use crate::rpc::{
 };
 use crossbeam::Sender;
 use rand::Rng;
-use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -81,10 +80,6 @@ where
         self.election_random_sleep_time = Duration::from_millis(r);
     }
 
-    fn random_round_span(&self) -> u64 {
-        1
-    }
-
     fn run_election(&mut self) -> Result<()> {
         let now = Instant::now();
         if now - self.election_last_time < self.election_random_sleep_time {
@@ -94,7 +89,7 @@ where
         self.election_last_time = now;
         self.update_election_random_sleep_time();
 
-        self.round += self.random_round_span();
+        self.round += 1;
 
         info!("{}: run election {}", &self.config.self_id, self.round);
 
@@ -120,7 +115,7 @@ where
                 Ok(resp) => {
                     if resp.is_approved {
                         info!("{}: {:?} 接受了我的投票 ", &self_id, &resp.from_id);
-                        s.send(resp);
+                        let _ = s.send(resp);
                     } else {
                         info!("{}: {:?} 拒绝了我的投票", &self_id, &resp.from_id);
                     }
@@ -187,9 +182,7 @@ where
 
     fn run_follower(&mut self) -> Result<()> {
         info!("{}: run follower", &self.config.self_id);
-        let now = Instant::now();
-        if now - self.follower_heartbeat_last_time < self.config.heartbeat_timeout {
-        } else {
+        if Instant::now() - self.follower_heartbeat_last_time > self.config.heartbeat_timeout {
             warn!("{}: heartbeat timeout", &self.config.self_id);
             self.leader.clear();
         }
