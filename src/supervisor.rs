@@ -5,6 +5,7 @@ use crate::rpc::{
 };
 use crossbeam::Sender;
 use rand::Rng;
+use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -188,7 +189,6 @@ where
         info!("{}: run follower", &self.config.self_id);
         let now = Instant::now();
         if now - self.follower_heartbeat_last_time < self.config.heartbeat_timeout {
-            self.follower_heartbeat_last_time = now;
         } else {
             warn!("{}: heartbeat timeout", &self.config.self_id);
             self.leader.clear();

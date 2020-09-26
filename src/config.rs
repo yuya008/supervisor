@@ -21,7 +21,7 @@ impl Default for Config {
             heartbeat_timeout: Duration::from_millis(200),
             heartbeat_interval: Duration::from_millis(200),
             heartbeat_rpc_timeout: Duration::from_millis(50),
-            election_random_sleep_time_range: (10, 1000),
+            election_random_sleep_time_range: (1000, 10001),
             election_random_val_range: (std::u64::MIN, std::u64::MAX),
             election_vote_rpc_timeout: Duration::from_millis(200),
             election_timeout: Duration::from_millis(2000),
