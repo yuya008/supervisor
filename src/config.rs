@@ -10,7 +10,6 @@ pub struct Config {
     pub election_random_sleep_time_range: (u64, u64),
     pub election_random_val_range: (u64, u64),
     pub election_vote_rpc_timeout: Duration,
-
     pub election_timeout: Duration,
 }
 
@@ -18,10 +17,10 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             self_id: Uuid::new_v4().to_string(),
-            heartbeat_timeout: Duration::from_millis(200),
+            heartbeat_timeout: Duration::from_millis(1000),
             heartbeat_interval: Duration::from_millis(200),
             heartbeat_rpc_timeout: Duration::from_millis(50),
-            election_random_sleep_time_range: (1000, 10001),
+            election_random_sleep_time_range: (1000, 5000),
             election_random_val_range: (std::u64::MIN, std::u64::MAX),
             election_vote_rpc_timeout: Duration::from_millis(200),
             election_timeout: Duration::from_millis(2000),
