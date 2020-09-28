@@ -169,10 +169,10 @@ where
 
             rayon::spawn(move || match rpc.heartbeat(&req) {
                 Ok(resp) => {
-                    info!("{}: leader heartbeat response {:?}", &self_id, &resp);
+                    // info!("{}: leader heartbeat response {:?}", &self_id, &resp);
                 }
                 Err(err) => {
-                    info!("{}: leader heartbeat error: {:?}", &self_id, err);
+                    // info!("{}: leader heartbeat error: {:?}", &self_id, err);
                 }
             });
         });
@@ -237,6 +237,11 @@ where
         self.round = req.round;
 
         self.follower_heartbeat_last_time = Instant::now();
+
+        info!(
+            "{} 收到心跳刷新 领导人：{} 轮数：{}",
+            &self.config.self_id, &self.leader, &self.round
+        );
 
         Ok(HeartbeatResponse {
             from_id: self.config.self_id.clone(),

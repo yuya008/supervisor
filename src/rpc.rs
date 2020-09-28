@@ -33,6 +33,9 @@ pub struct VoteResponse {
 quick_error! {
     #[derive(Debug)]
     pub enum RPCError {
+        Io {
+            from(std::io::Error)
+        }
         InvalidOperation {}
         Timeout {}
         Inaccessible {}
